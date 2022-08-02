@@ -165,8 +165,6 @@ class Ec2Inventory(object):
             else:
                 data_to_print = self.json_format_dict(self.inventory, True)
 
-        print data_to_print
-
 
     def is_cache_valid(self):
         ''' Determines if the cache files have expired, or if it is still valid '''
@@ -174,9 +172,10 @@ class Ec2Inventory(object):
         if os.path.isfile(self.cache_path_cache):
             mod_time = os.path.getmtime(self.cache_path_cache)
             current_time = time()
-            if (mod_time + self.cache_max_age) > current_time:
-                if os.path.isfile(self.cache_path_index):
-                    return True
+            if (mod_time + self.cache_max_age) > current_time and os.path.isfile(
+                self.cache_path_index
+            ):
+                return True
 
         return False
 
@@ -205,9 +204,12 @@ class Ec2Inventory(object):
             if self.eucalyptus_host:
                 self.regions.append(boto.connect_euca(host=self.eucalyptus_host).region.name)
             else:
-                for regionInfo in ec2.regions():
-                    if regionInfo.name not in configRegions_exclude:
-                        self.regions.append(regionInfo.name)
+                self.regions.extend(
+                    regionInfo.name
+                    for regionInfo in ec2.regions()
+                    if regionInfo.name not in configRegions_exclude
+                )
+
         else:
             self.regions = configRegions.split(",")
 
@@ -227,8 +229,8 @@ class Ec2Inventory(object):
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
 
-        self.cache_path_cache = cache_dir + "/ansible-ec2.cache"
-        self.cache_path_index = cache_dir + "/ansible-ec2.index"
+        self.cache_path_cache = f"{cache_dir}/ansible-ec2.cache"
+        self.cache_path_index = f"{cache_dir}/ansible-ec2.index"
         self.cache_max_age = config.getint('ec2', 'cache_max_age')
         
 
@@ -313,7 +315,10 @@ class Ec2Inventory(object):
 
         # connect_to_region will fail "silently" by returning None if the region name is wrong or not supported
         if conn is None:
-            print("region name: %s likely not supported, or AWS is down.  connection to region failed." % region)
+            print(
+                f"region name: {region} likely not supported, or AWS is down.  connection to region failed."
+            )
+
             sys.exit(1)
 
         reservations = conn.get_all_instances([instance_id])
@@ -492,7 +497,7 @@ class Ec2Inventory(object):
         instance_vars = {}
         for key in vars(instance):
             value = getattr(instance, key)
-            key = self.to_safe('ec2_' + key)
+            key = self.to_safe(f'ec2_{key}')
 
             # Handle complex types
             # state/previous_state changed to properties in boto in https://github.com/boto/boto/commit/a23c379837f698212252720d2af8dec0325c9518
@@ -514,7 +519,7 @@ class Ec2Inventory(object):
                 instance_vars['ec2_placement'] = value.zone
             elif key == 'ec2_tags':
                 for k, v in value.iteritems():
-                    key = self.to_safe('ec2_tag_' + k)
+                    key = self.to_safe(f'ec2_tag_{k}')
                     instance_vars[key] = v
             elif key == 'ec2_groups':
                 group_ids = []
@@ -524,13 +529,6 @@ class Ec2Inventory(object):
                     group_names.append(group.name)
                 instance_vars["ec2_security_group_ids"] = ','.join(group_ids)
                 instance_vars["ec2_security_group_names"] = ','.join(group_names)
-            else:
-                pass
-                # TODO Product codes if someone finds them useful
-                #print key
-                #print type(value)
-                #print value
-
         return instance_vars
 
     def get_host_info(self):
@@ -540,12 +538,12 @@ class Ec2Inventory(object):
             # Need to load index from cache
             self.load_index_from_cache()
 
-        if not self.args.host in self.index:
+        if self.args.host not in self.index:
             # try updating the cache
             self.do_api_calls_update_cache()
-            if not self.args.host in self.index:
-                # host migh not exist anymore
-                return self.json_format_dict({}, True)
+        if self.args.host not in self.index:
+            # host migh not exist anymore
+            return self.json_format_dict({}, True)
 
         (region, instance_id) = self.index[self.args.host]
 
@@ -567,8 +565,7 @@ class Ec2Inventory(object):
         object '''
 
         cache = open(self.cache_path_cache, 'r')
-        json_inventory = cache.read()
-        return json_inventory
+        return cache.read()
 
 
     def load_index_from_cache(self):
@@ -583,9 +580,8 @@ class Ec2Inventory(object):
         ''' Writes data in JSON format to a file '''
 
         json_data = self.json_format_dict(data, True)
-        cache = open(filename, 'w')
-        cache.write(json_data)
-        cache.close()
+        with open(filename, 'w') as cache:
+            cache.write(json_data)
 
 
     def to_safe(self, word):
